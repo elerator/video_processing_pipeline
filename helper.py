@@ -8,9 +8,21 @@ import re
 
 from scipy import stats
 
-def combined_trials_for_dyad(folder,eeg_filename,vmrks,participant, exclude, electrodes):
+def combined_trials_for_dyad(folder,eeg_filenames,vmrks,participant, exclude, electrodes):
+    """ Retrieves the trials periods from the three eeg files and appends them.
+    Params:
+        folder: folder path (string)
+        eeg_filenames: filenames(string)
+        vmrks: dictionary containing information from a vmrk,
+        participant: 0 or 1
+        exclude: list of electrode indices to exclude
+        electrodes: List of names of electrodes including those that are to be excluded
+
+    Returns:
+        Dictionary mapping channels to data of all runs
+    """
     powers = []
-    for filename, vmrk in zip(eeg_filename,vmrks):
+    for filename, vmrk in zip(eeg_filenames,vmrks):
         power = frequency_bands_to_common_reference(folder+filename,electrodes
                                                             ,participant =0, exclude = exclude)
         times = get_trial_times(vmrk)
@@ -19,6 +31,13 @@ def combined_trials_for_dyad(folder,eeg_filename,vmrks,participant, exclude, ele
     return extend_nparray_keys(extend_nparray_keys(powers[0],powers[1]),powers[2])
 
 def extend_nparray_keys(d1,d2):
+    """ Extends keys in a dictionary that are 1D numpy arrays and returns the new Dictionary
+        Params:
+            d1: Dictionary mapping keys to 1d numpy arrays
+            d2: Dictionary mapping keys to 1d numpy arrays
+        Returns:
+            Dictionary mapping keys to extended 1d numpy arrays
+    """
     dr = {}
     for k,v in d1.items():
         l = list(d1[k])
@@ -27,13 +46,31 @@ def extend_nparray_keys(d1,d2):
     return dr
 
 def trials_only(power,times):
+    """ Cuts the trial periods inplace (i.e. both runs) from a single eeg/motion file appends them and returns combined ndarray
+        Args:
+            power: Dictionary mapping strings(Electodes) to data (1d np array)
+            times: times of the runs
+    """
+
     for k,v in power.items():
-        l1 = list(v[times[0,0]//20:times[0,1]//20])
-        l2 = list(v[times[1,0]//20:times[1,1]//20])
+        t1 = times[0,0]//20
+        t2 = times[0,1]//20
+        t3 = times[1,0]//20
+        t4 = times[1,1]//20
+
+        l1 = list(v[t1:t2])
+        l2 = list(v[t3:t4])
         l1.extend(l2)
+
+        assert len(l1) == np.abs((t2-t1))+np.abs((t4-t3))
         power[k] = np.array(l1)
 
 def get_trial_times(parsed_vmrk):
+    """ Uses the information from a parsed vmrk to returns the times for the trial period (beginning and end).
+        Times are computed according to the eyes open trigger (begin) and eyes closed (end) triggerself.
+        Args:
+            parsed_vmrk: Dictionary containing the information from a markerfile
+    """
     start = get_times_of(parsed_vmrk,"S 20")#end refers to end of eyes closed. start to start. We look for reverse
     start.append(None)
     end = [None]
@@ -43,6 +80,13 @@ def get_trial_times(parsed_vmrk):
     return times
 
 def get_times_of(parsed, event, pois = None):
+    """ Retrieves times for events given a parsed vmrkself
+    Args:
+        parsed: A dictionary containing the information from a vmrks
+        event: String specifying the event name e.g. S128
+        pois: Period of interest. If given results are added to it (list)
+
+    """
     if not pois:
         pois = []
     last_idx = 0
@@ -244,27 +288,27 @@ def frequency_bands_to_common_reference(path, electrode_names= None,
             time = int(vmrk['time'][idx])//20
 
     if not channel:
-        reference = np.mean(load_eeg(path,participant=participant),axis = 0)
+        reference = np.nanmean(load_eeg(path,participant=participant),axis = 0)
         print(".", end = "")
     else:
         reference = load_eeg(path, channel)[participant*32:(participant*32)+32]
 
-    for electrode in range(32):
+    for electrode in range(32*participant,32*participant+32):
         if electrode in exclude:
             continue
         print(".", end="")
         current_signal = load_eeg(path, electrode)-reference
         spectrum = np.abs(spectrogram(current_signal, f_min=0,f_max=100))
         if not electrode_names:
-            alpha_contrasts.append(np.sum(spectrum[freq_alpha[0]:freq_alpha[1],time:],axis=0))
-            beta_contrasts.append(np.sum(spectrum[freq_beta[0]:freq_beta[1],time:],axis=0))
-            gamma_low_contrasts.append(np.sum(spectrum[freq_gamma_low[0]:freq_gamma_low[1],time:],axis=0))
-            gamma_high_contrasts.append(np.sum(spectrum[freq_gamma_high[0]:freq_gamma_high[1],time:],axis=0))
+            alpha_contrasts.append(np.nansum(spectrum[freq_alpha[0]:freq_alpha[1],time:],axis=0))
+            beta_contrasts.append(np.nansum(spectrum[freq_beta[0]:freq_beta[1],time:],axis=0))
+            gamma_low_contrasts.append(np.nansum(spectrum[freq_gamma_low[0]:freq_gamma_low[1],time:],axis=0))
+            gamma_high_contrasts.append(np.nansum(spectrum[freq_gamma_high[0]:freq_gamma_high[1],time:],axis=0))
         else:
-            dictionary["alpha_"+electrode_names[electrode]] = np.sum(spectrum[freq_alpha[0]:freq_alpha[1],time:],axis=0)
-            dictionary["beta_"+electrode_names[electrode]] = np.sum(spectrum[freq_beta[0]:freq_beta[1],time:],axis=0)
-            dictionary["gamma1_"+electrode_names[electrode]] = np.sum(spectrum[freq_gamma_low[0]:freq_gamma_low[1],time:],axis=0)
-            dictionary["gamma2_"+electrode_names[electrode]] = np.sum(spectrum[freq_gamma_high[0]:freq_gamma_high[1],time:],axis=0)
+            dictionary["alpha_"+electrode_names[electrode]] = np.nansum(spectrum[freq_alpha[0]:freq_alpha[1],time:],axis=0)
+            dictionary["beta_"+electrode_names[electrode]] = np.nansum(spectrum[freq_beta[0]:freq_beta[1],time:],axis=0)
+            dictionary["gamma1_"+electrode_names[electrode]] = np.nansum(spectrum[freq_gamma_low[0]:freq_gamma_low[1],time:],axis=0)
+            dictionary["gamma2_"+electrode_names[electrode]] = np.nansum(spectrum[freq_gamma_high[0]:freq_gamma_high[1],time:],axis=0)
 
     if not electrode_names:
         return np.array([alpha_contrasts, beta_contrasts, gamma_low_contrasts, gamma_high_contrasts])
@@ -314,37 +358,36 @@ def frequency_bands_between_electrodes(path, participant = 0, vmrk = None):
 def correlations(bands, movement_signal, smoothing = False):
     """ Computes correlation coefficents for every electrode pair and a given movement channel_signal
     Args:
-        bands:              N x N numpy array containing the bandpower-contrasts between each pair of electrodes (a 1D numpy array)
+        bands:              N x N numpy array containing the bandpower-contrasts between each pair of electrodes (1D numpy arrays)
         movement_signal:    A 1D numpy array containing a movement channel_signal
         smoothing:          Boolean. If true smoothing is applied using a gaussian with sigma 50 for movement_signal
                             and sigma = 2 for eeg bandpowers
     """
-    movement_signal = movement_signal[:bands[0,0].shape[0]]
+    movement_signal = movement_signal[:bands[0,0].shape[0]]#cut movement_signal if its too long
     if(smoothing):#Smoothing
         movement_signal = ndimage.filters.gaussian_filter1d(movement_signal,50)
 
     correlations = []
-    for roi in range(1):#head hands body
-        correlation_coefficients = np.zeros(shape=(32,32), dtype = np.float32)
-        ps = np.zeros(shape=(32,32), dtype = np.float32)
+    correlation_coefficients = np.zeros(shape=(32,32), dtype = np.float32)
+    ps = np.zeros(shape=(32,32), dtype = np.float32)
 
-        for i in range(32):
-            for j in range(32):
-                try:
-                    contrast = bands[i][j]
+    for i in range(32):
+        for j in range(32):
+            try:
+                contrast = bands[i][j]
 
-                    if(smoothing):
-                        contrast = ndimage.filters.gaussian_filter1d(contrast,2)
+                if(smoothing):
+                    contrast = ndimage.filters.gaussian_filter1d(contrast,2)
 
 
-                    slope, intercept, r, p, err = stats.linregress(contrast,movement_signal)
-                    correlation_coefficients[i][j] = r
-                    ps[i][j] = p
-                except Exception as e:
-                    pass
+                slope, intercept, r, p, err = stats.linregress(contrast,movement_signal)
+                correlation_coefficients[i][j] = r
+                ps[i][j] = p
+            except Exception as e:
+                pass
 
-                if(i % 100 == 0):
-                    print(".", end = "")
+            if(i % 100 == 0):
+                print(".", end = "")
 
         correlations.append(correlation_coefficients)
         correlations.append(ps)
@@ -365,11 +408,19 @@ def correlation_shifted(row,row1,maxshift):
     """
     minlen = np.min([len(row),len(row1)])#in case the rows are of different size
     corrs = []
+    ps = []
     borders = np.arange(-maxshift,maxshift)
     for i in borders:
         #Start at maxshift for row such that there is data from shifted row1
         snippet1 = row[maxshift+i:minlen-maxshift+i]
         snippet2 = row1[maxshift:minlen-maxshift]
         slope, intercept, pearsons_r, p_value, std_err = stats.linregress(snippet1,snippet2)
+        if(np.isnan(pearsons_r)):
+            print("!", end = "")
+            mask = ~np.isnan(snippet1) & ~np.isnan(snippet2)#avoid
+            slope, intercept, pearsons_r, p_value, std_err = stats.linregress(snippet1[mask],snippet2[mask])
+
+
         corrs.append(pearsons_r)
-    return corrs
+        ps.append(p_value)
+    return corrs, ps
